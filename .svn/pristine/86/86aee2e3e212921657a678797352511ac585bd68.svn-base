@@ -1,0 +1,7 @@
+<resources>
+
+    <string name="app_name">xSkin</string>
+    <string name="xskin_text">text</string>
+    <string name="xskin_text_red">red</string>
+
+</resources>
