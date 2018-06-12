@@ -40,19 +40,28 @@ public class MainActivity extends xSkinBaseActivity {
      * @param view
      */
     public void change(View view) {
+        /**
+         * @param Context 上下文
+         * @param apkPath 插件apk的路径，包括apk名，比如存在sd卡的某个文件夹下 *** / *** / 123.apk
+         * @param pkgName 包名，插件apk的包名，需要根据该包名
+         * @param callback 回调
+         */
         xSkin.getInstance().changeSkin(this, PATH, PKN, new ISkinChangingCallback() {
             @Override
             public void onStart() {
+                //开始换肤
                 Log.e("xys", "onStart");
             }
 
             @Override
             public void onError(Exception e) {
+                //换肤失败
                 Log.e("xys", "onError = " + e);
             }
 
             @Override
             public void onComplete() {
+                //换肤完成
                 Log.e("xys", "onComplete");
             }
         });

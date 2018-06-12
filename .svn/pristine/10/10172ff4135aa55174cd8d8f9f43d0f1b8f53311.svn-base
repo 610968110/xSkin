@@ -1,0 +1,202 @@
+package lbx.xskinlib;
+
+import android.app.Application;
+import android.content.Context;
+import android.os.AsyncTask;
+import android.text.TextUtils;
+import android.view.View;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import lbx.xskinlib.callback.ISkinChangedCallback;
+import lbx.xskinlib.callback.ISkinChangingCallback;
+import lbx.xskinlib.skin.SkinAttr;
+import lbx.xskinlib.skin.SkinView;
+import lbx.xskinlib.utils.PreUtil;
+
+/**
+ * @author lbx
+ * @date 2017/11/6.
+ */
+
+public class xSkin {
+
+    private static xSkin INSTANCE;
+    private String mSuffix;
+    private String mApkPath;
+    private String mPkgName;
+    private Context mContext;
+    private Map<ISkinChangedCallback, List<SkinView>> mSkinViewMaps = new HashMap<>();
+    private List<ISkinChangedCallback> mCallbackList = new ArrayList<>();
+    private boolean mSkinClear;
+
+    public static xSkin getInstance() {
+        if (INSTANCE == null) {
+            synchronized (ResourceManager.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new xSkin();
+                }
+            }
+        }
+        return INSTANCE;
+    }
+
+    private xSkin() {
+    }
+
+    public void init(Application app) {
+        mContext = app.getApplicationContext();
+        mApkPath = PreUtil.getString(mContext, "apkPath");
+        mPkgName = PreUtil.getString(mContext, "pkgName");
+        mSuffix = PreUtil.getString(mContext, "suffix");
+        ResourceManager.getInstance(mContext).getResources(mApkPath, mPkgName, mSuffix);
+    }
+
+    public ResourceManager getResourceManager() {
+        return ResourceManager.getInstance(mContext);
+    }
+
+    public void inject(View view, List<SkinAttr> themeAttrList, ISkinChangedCallback callback) {
+        if (themeAttrList.size() != 0) {
+            List<SkinView> skinViews = xSkin.getInstance().getSkinViews(callback);
+            if (skinViews == null) {
+                skinViews = new ArrayList<>();
+            }
+            xSkin.getInstance().addSkinView(callback, skinViews);
+            skinViews.add(new SkinView(view, themeAttrList));
+            if (!TextUtils.isEmpty(mSuffix) || !mContext.getPackageName().equals(mPkgName)) {
+                try {
+                    xSkin.getInstance().apply(callback);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public void apply(ISkinChangedCallback callback) {
+        List<SkinView> skinViews = getSkinViews(callback);
+        if (skinViews != null) {
+            for (SkinView skinView : skinViews) {
+                skinView.apply();
+            }
+        }
+    }
+
+    private void addSkinView(ISkinChangedCallback callback, List<SkinView> skinViews) {
+        mSkinViewMaps.put(callback, skinViews);
+    }
+
+    private List<SkinView> getSkinViews(ISkinChangedCallback callback) {
+        return mSkinViewMaps.get(callback);
+    }
+
+    private List<SkinView> removeViews(ISkinChangedCallback callback) {
+        return mSkinViewMaps.remove(callback);
+    }
+
+    public void addChangedListener(ISkinChangedCallback callback) {
+        mCallbackList.add(callback);
+    }
+
+    public void removeChangedListener(ISkinChangedCallback callback) {
+        if (mCallbackList.contains(callback)) {
+            mCallbackList.remove(callback);
+        }
+        removeViews(callback);
+    }
+
+    public void changeSkin(Context context, String apkPath, String pkgName, ISkinChangingCallback callback) {
+        changeSkin(context, apkPath, pkgName, "", callback);
+    }
+
+    private void changeSkin(final Context context, final String apkPath, final String pkgName, final String suffix, ISkinChangingCallback callback) {
+        if (callback == null) {
+            callback = ISkinChangingCallback.DEFAULT_CALLBACK;
+        }
+        final ISkinChangingCallback skinChangingCallback = callback;
+        skinChangingCallback.onStart();
+        checkString(apkPath, pkgName);
+        if (apkPath.equals(mApkPath) && pkgName.equals(mPkgName)) {
+            return;
+        }
+        skinTask(context, apkPath, pkgName, suffix, skinChangingCallback);
+    }
+
+    private void skinTask(final Context context, final String apkPath, final String pkgName, final String suffix, final ISkinChangingCallback callback) {
+        final ISkinChangingCallback skinChangingCallback = callback == null ? ISkinChangingCallback.DEFAULT_CALLBACK : callback;
+        mSkinClear = false;
+        new AsyncTask<Void, Void, Void>() {
+            @Override
+            protected Void doInBackground(Void... params) {
+                try {
+                    ResourceManager.getInstance(context).getResources(apkPath, pkgName, suffix);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    skinChangingCallback.onError(e);
+                }
+                return null;
+            }
+
+            @Override
+            protected void onPostExecute(Void aVoid) {
+                try {
+                    updatePluginInfo(context, apkPath, pkgName, suffix);
+                    notifyChangedListeners();
+                    skinChangingCallback.onComplete();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    skinChangingCallback.onError(e);
+                }
+            }
+        }.execute();
+    }
+
+    private void updatePluginInfo(Context context, String apkPath, String pkgName, String suffix) {
+        PreUtil.putString(context, "apkPath", apkPath);
+        PreUtil.putString(context, "pkgName", pkgName);
+        PreUtil.putString(context, "suffix", suffix);
+        mPkgName = pkgName;
+        mApkPath = apkPath;
+        mSuffix = suffix;
+    }
+
+    public void removeSkin(Context context) {
+        if (!mSkinClear) {
+            mApkPath = null;
+            mPkgName = context.getPackageName();
+            mSuffix = null;
+            PreUtil.clear(context);
+            skinTask(context, null, mPkgName, null, null);
+            mSkinClear = true;
+            notifyChangedListeners();
+        }
+    }
+
+    public void changeSkin(Context context, String suffix) {
+        if (suffix.equals(mSuffix)) {
+            return;
+        }
+        mApkPath = null;
+        mPkgName = context.getPackageName();
+        mSuffix = suffix;
+        PreUtil.clear(context);
+        skinTask(context, null, mPkgName, suffix, null);
+        notifyChangedListeners();
+    }
+
+    private void checkString(String apkPath, String pkgName) {
+        if (TextUtils.isEmpty(apkPath) || TextUtils.isEmpty(pkgName)) {
+            throw new NullPointerException("apkPath or pkgName may be null");
+        }
+    }
+
+    private void notifyChangedListeners() {
+        for (ISkinChangedCallback listener : mCallbackList) {
+            listener.onSkinChanged();
+        }
+    }
+}
